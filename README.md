@@ -12,6 +12,8 @@ This is a simple expense tracker app built with React and Firebase. It allows us
 ![Signup Page](./screenshot/signup.png)
 * Expense Page
 ![Expense Page](./screenshot/expense.png)
+* Income Page
+![Income Page](./screenshot/income.png)
 * Add Expense/Income Page
 ![Add Expense/Income Page](./screenshot/add.png)
 * Summary and Income Page
