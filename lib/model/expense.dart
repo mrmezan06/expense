@@ -37,7 +37,7 @@ const categoryIcons = {
   Category.wifi: Icons.wifi,
   Category.travel: Icons.flight,
   Category.fuel: Icons.local_gas_station,
-  Category.other: Icons.money,
+  Category.other: Icons.attach_money,
 };
 
 class Expense {

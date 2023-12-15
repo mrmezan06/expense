@@ -1,30 +1,30 @@
 import 'dart:convert';
 
-import 'package:expense/pages/income_page.dart';
+import 'package:expense/model/expense.dart';
 import 'package:expense/pages/login_page.dart';
 import 'package:expense/pages/summary_page.dart';
-import 'package:expense/widgets/chart/chart.dart';
+import 'package:expense/widgets/expenses.dart';
 import 'package:expense/widgets/expenses_list/expenses_list.dart';
 import 'package:expense/widgets/new_expense.dart';
 import 'package:flutter/material.dart';
-import 'package:expense/model/expense.dart';
 import 'package:get/get.dart';
+import 'package:intl/intl.dart';
 
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 
-class Expenses extends StatefulWidget {
-  const Expenses({super.key});
+final yMFormat = DateFormat.yM();
+
+class IncomePage extends StatefulWidget {
+  const IncomePage({super.key});
 
   @override
-  State<Expenses> createState() => _ExpensesState();
+  State<IncomePage> createState() => _IncomePageState();
 }
 
-class _ExpensesState extends State<Expenses> {
-  final List<Expense> _regExpenses = [];
+class _IncomePageState extends State<IncomePage> {
+  final List<Expense> _regIncome = [];
   var _currentDate = DateTime.now();
-
-  var id;
 
   void _presentDatePicker() async {
     final now = DateTime.now();
@@ -42,8 +42,10 @@ class _ExpensesState extends State<Expenses> {
     setState(() {
       _currentDate = pickedDate;
     });
-    loadData(_currentDate);
+    loadIncome(_currentDate);
   }
+
+  var id;
 
   Category _categoryFinder(String category) {
     switch (category) {
@@ -80,127 +82,68 @@ class _ExpensesState extends State<Expenses> {
     }
   }
 
-  void loadData(DateTime date) async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    id = prefs.getString('_id');
-    if (id == null) {
-      Get.to(() => LoginPage(), transition: Transition.leftToRight);
-    } else {
-      // Show loading indicator
-      Get.dialog(
-        const Center(
-          child: CircularProgressIndicator(),
-        ),
-        barrierDismissible: false,
-      );
-
-      // print(id);
-      final response = await getBalanceList(id, date);
-      if (response.statusCode == 200) {
-        final expenses = jsonDecode(response.body);
-        // add the jsonArray to _regExpenses
-        for (var expense in expenses) {
-          // create a new expense object
-          Expense expenseObj = Expense(
-            id: expense['_id'],
-            title: expense['title'],
-            amount: expense['amount'].toString(),
-            date: DateTime.parse(expense['date']),
-            category: _categoryFinder(expense['category']),
-          );
-          // add the expense object to _regExpenses
-          setState(() {
-            _regExpenses.add(expenseObj);
-          });
-        }
+  void loadIncome(DateTime date) {
+    SharedPreferences.getInstance().then((prefs) async {
+      id = prefs.getString('_id');
+      if (id == null) {
+        Get.to(() => LoginPage(), transition: Transition.leftToRight);
       } else {
-        var message = jsonDecode(response.body)['message'];
-        Get.snackbar('Error', message,
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Colors.red,
-            colorText: Colors.white);
+        // Show loading indicator
+        Get.dialog(
+          const Center(
+            child: CircularProgressIndicator(),
+          ),
+          barrierDismissible: false,
+        );
+
+        // print(id);
+        final response = await getIncomeList(id, date);
+        if (response.statusCode == 200) {
+          final incomeArray = jsonDecode(response.body);
+
+          // Clear _regIncome
+          setState(() {
+            _regIncome.clear();
+          });
+          for (var expense in incomeArray) {
+            // create a new expense object
+            Expense expenseObj = Expense(
+              id: expense['_id'],
+              title: expense['title'],
+              amount: expense['amount'].toString(),
+              date: DateTime.parse(expense['date']),
+              category: _categoryFinder(expense['category']),
+            );
+            // add the expense object to _regExpenses
+            setState(() {
+              _regIncome.add(expenseObj);
+            });
+          }
+
+          // Clear loading indicator
+          Get.back();
+        } else if (response.statusCode == 404) {
+          // Clear _regIncome
+          setState(() {
+            _regIncome.clear();
+          });
+          // Clear loading indicator
+          Get.back();
+        } else {
+          // Hide loading indicator
+          Get.back();
+          var message = jsonDecode(response.body)['message'];
+          Get.snackbar('Error', message,
+              snackPosition: SnackPosition.BOTTOM,
+              backgroundColor: Colors.red,
+              colorText: Colors.white);
+        }
       }
-    }
-    // Hide loading indicator
-    Get.back();
+    });
   }
 
-  @override
-  void initState() {
-    super.initState();
-    loadData(_currentDate);
-  }
-
-  void _addExpense(Expense expense) async {
-    // _regExpenses.add(expense);
-
-    // First of all server call to add expense
-    // Then if successfull then add to _regExpenses to the list of the response
-
-    // Show loading indicator
-    Get.dialog(
-      const Center(
-        child: CircularProgressIndicator(),
-      ),
-      barrierDismissible: false,
-    );
-
-    // _regExpenses encode to json then store in shared preferences
-    final response = await addBalance(
-      id,
-      expense.title,
-      expense.amount,
-      expense.date,
-      expense.category.name,
-    );
-
-    if (response.statusCode == 201) {
-      final nExpense = jsonDecode(response.body);
-      // add the jsonArray to _regExpenses
-
-      // if its category is income then got to income page
-      if (expense.category.name == 'income') {
-        Get.back();
-        Get.to(() => const IncomePage(), transition: Transition.leftToRight);
-        return;
-      }
-
-      // create a new expense object
-      Expense expenseObj = Expense(
-        id: nExpense['_id'],
-        title: nExpense['title'],
-        amount: nExpense['amount'].toString(),
-        date: DateTime.parse(nExpense['date']),
-        category: _categoryFinder(nExpense['category']),
-      );
-      // add the expense object to _regExpenses
-      setState(() {
-        _regExpenses.add(expenseObj);
-      });
-    } else {
-      var message = jsonDecode(response.body)['message'];
-      Get.snackbar('Error', message,
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-          colorText: Colors.white);
-    }
-
-    // Hide loading indicator
-    Get.back();
-  }
-
-  void _openAddExpenseOverlay() {
-    showModalBottomSheet(
-        useSafeArea: true,
-        context: context,
-        isScrollControlled: true,
-        builder: (context) => NewExpense(
-              onAddExpense: _addExpense,
-            ));
-  }
-
-  void _removeExpense(Expense expense) async {
-    final expensIndex = _regExpenses.indexOf(expense);
+  void _removeIncome(Expense expense) async {
+    final expensIndex = _regIncome.indexOf(expense);
     // setState(() {
     //   _regExpenses.remove(expense);
     // });
@@ -247,8 +190,10 @@ class _ExpensesState extends State<Expenses> {
               );
               // add the expense object to _regExpenses
               setState(() {
-                _regExpenses.insert(expensIndex, expenseObj);
+                _regIncome.insert(expensIndex, expenseObj);
               });
+              // Load summary again
+              loadIncome(_currentDate);
             } else {
               var message = jsonDecode(response.body)['message'];
               Get.snackbar('Error', message,
@@ -276,7 +221,66 @@ class _ExpensesState extends State<Expenses> {
 
     if (response.statusCode == 200) {
       setState(() {
-        _regExpenses.remove(expense);
+        _regIncome.remove(expense);
+      });
+      // Load summary again
+      loadIncome(_currentDate);
+    } else {
+      var message = jsonDecode(response.body)['message'];
+      Get.snackbar('Error', message,
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white);
+    }
+
+    // Hide loading indicator
+    Get.back();
+  }
+
+  void _addExpense(Expense expense) async {
+    // _regExpenses.add(expense);
+
+    // First of all server call to add expense
+    // Then if successfull then add to _regExpenses to the list of the response
+
+    // Show loading indicator
+    Get.dialog(
+      const Center(
+        child: CircularProgressIndicator(),
+      ),
+      barrierDismissible: false,
+    );
+
+    // _regExpenses encode to json then store in shared preferences
+    final response = await addBalance(
+      id,
+      expense.title,
+      expense.amount,
+      expense.date,
+      expense.category.name,
+    );
+
+    if (response.statusCode == 201) {
+      // Get the title of the expense
+      final nExpense = jsonDecode(response.body);
+// if its category is income then got to income page
+      if (expense.category.name != 'income') {
+        Get.back();
+        Get.to(() => const Expenses(), transition: Transition.rightToLeft);
+        return;
+      }
+
+      // create a new expense object
+      Expense expenseObj = Expense(
+        id: nExpense['_id'],
+        title: nExpense['title'],
+        amount: nExpense['amount'].toString(),
+        date: DateTime.parse(nExpense['date']),
+        category: _categoryFinder(nExpense['category']),
+      );
+      // add the expense object to _regExpenses
+      setState(() {
+        _regIncome.add(expenseObj);
       });
     } else {
       var message = jsonDecode(response.body)['message'];
@@ -290,6 +294,22 @@ class _ExpensesState extends State<Expenses> {
     Get.back();
   }
 
+  void _openAddExpenseOverlay() {
+    showModalBottomSheet(
+        useSafeArea: true,
+        context: context,
+        isScrollControlled: true,
+        builder: (context) => NewExpense(
+              onAddExpense: _addExpense,
+            ));
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    loadIncome(_currentDate);
+  }
+
   @override
   Widget build(BuildContext context) {
     // Find the total width of the screen
@@ -297,16 +317,15 @@ class _ExpensesState extends State<Expenses> {
     final height = MediaQuery.of(context).size.height;
 
     Widget mainContent = const Center(
-      child: Text('No Expenses added yet!'),
+      child: Text('No Incomes added yet!'),
     );
 
-    if (_regExpenses.isNotEmpty) {
+    if (_regIncome.isNotEmpty) {
       mainContent = ExpensesList(
-        expenses: _regExpenses,
-        onRemoveExpense: _removeExpense,
+        expenses: _regIncome,
+        onRemoveExpense: _removeIncome,
       );
     }
-
     return Scaffold(
       bottomNavigationBar: BottomNavigationBar(
         items: const [
@@ -326,16 +345,15 @@ class _ExpensesState extends State<Expenses> {
             label: 'Summary',
           ),
         ],
-        currentIndex: 0,
+        currentIndex: 1,
         selectedItemColor: Colors.amber[800],
         onTap: (index) {
           switch (index) {
             case 0:
-              // ExpensesPage();
+              Get.to(() => const Expenses(),
+                  transition: Transition.rightToLeft);
               break;
             case 1:
-              Get.to(() => const IncomePage(),
-                  transition: Transition.leftToRight);
               break;
             case 2:
               Get.to(() => const SummaryPage(),
@@ -346,7 +364,7 @@ class _ExpensesState extends State<Expenses> {
       ),
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Expense Tracker'),
+        title: const Text('Income Tracker'),
         actions: [
           IconButton(
             onPressed: () {
@@ -373,10 +391,6 @@ class _ExpensesState extends State<Expenses> {
         child: width < height
             ? Column(
                 children: [
-                  Chart(expenses: _regExpenses),
-                  const SizedBox(
-                    height: 10,
-                  ),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.center,
@@ -390,10 +404,10 @@ class _ExpensesState extends State<Expenses> {
                         ),
                       ),
                       const SizedBox(
-                        width: 20,
+                        width: 25,
                       ),
                       const Text(
-                        'Expenses',
+                        'Incomes',
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -401,7 +415,7 @@ class _ExpensesState extends State<Expenses> {
                       ),
                     ],
                   ),
-                  mainContent,
+                  mainContent
                 ],
               )
             : Row(
@@ -411,22 +425,37 @@ class _ExpensesState extends State<Expenses> {
                     width: 25,
                   ),
                   Expanded(
-                    child: Chart(expenses: _regExpenses),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text(yMFormat.format(_currentDate)),
+                            IconButton(
+                              onPressed: _presentDatePicker,
+                              icon: const Icon(
+                                Icons.calendar_month,
+                                color: Colors.blue,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                   mainContent,
                 ],
               ),
-        // BottomNavigationBar
       ),
     );
   }
 }
 
-// ignore: constant_identifier_names
 const BASE_URL = 'https://expense-api-coma.onrender.com/api/v1';
 
-getBalanceList(String id, DateTime date) async {
-  const slag = '/balance/get-expense-list';
+getBalanceList(String id) async {
+  const slag = '/balance/get-income-list';
 
   final uri = Uri.parse(BASE_URL + slag);
 
@@ -434,32 +463,7 @@ getBalanceList(String id, DateTime date) async {
       headers: <String, String>{
         'Content-Type': 'application/json',
       },
-      body: jsonEncode(
-          <String, String>{"_uid": id, "date": date.toIso8601String()}));
-
-  return response;
-}
-
-addBalance(String id, String title, String amount, DateTime date,
-    String category) async {
-  const slag1 = '/balance/add-expense';
-  const slag2 = '/balance/add-income';
-
-  final slag = category == 'income' ? slag2 : slag1;
-
-  final uri = Uri.parse(BASE_URL + slag);
-
-  final response = await http.post(uri,
-      headers: <String, String>{
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(<String, String>{
-        "title": title,
-        "amount": amount,
-        "date": date.toIso8601String(),
-        "category": category,
-        "_uid": id,
-      }));
+      body: jsonEncode(<String, String>{"_uid": id}));
 
   return response;
 }
@@ -476,6 +480,21 @@ deleteBalance(String id) async {
       body: jsonEncode(<String, String>{
         "_id": id,
       }));
+
+  return response;
+}
+
+getIncomeList(String id, DateTime date) async {
+  const slag = '/balance/get-income-list';
+
+  final uri = Uri.parse(BASE_URL + slag);
+
+  final response = await http.post(uri,
+      headers: <String, String>{
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(
+          <String, String>{"_uid": id, "date": date.toIso8601String()}));
 
   return response;
 }

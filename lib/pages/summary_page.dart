@@ -1,9 +1,11 @@
 import 'dart:convert';
 
 import 'package:expense/model/expense.dart';
+import 'package:expense/pages/income_page.dart';
 import 'package:expense/pages/login_page.dart';
 import 'package:expense/widgets/expenses.dart';
 import 'package:expense/widgets/expenses_list/expenses_list.dart';
+import 'package:expense/widgets/new_expense.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,7 +25,25 @@ class _SummaryPageState extends State<SummaryPage> {
   var _totalExpense = 0.0;
   var _currentMonthIncome = 0.0;
   var _currentMonthExpense = 0.0;
-  var _currentMonth = DateTime.now().month;
+  var _currentDate = DateTime.now();
+  void _presentDatePicker() async {
+    final now = DateTime.now();
+    final firstDate = DateTime(1960, now.month, now.day);
+    final lastDate = DateTime(2060, now.month, now.day);
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: firstDate,
+      lastDate: lastDate,
+    );
+    if (pickedDate == null) {
+      return;
+    }
+    setState(() {
+      _currentDate = pickedDate;
+    });
+    loadSummaryByMonth(_currentDate);
+  }
 
   var id;
 
@@ -84,42 +104,20 @@ class _SummaryPageState extends State<SummaryPage> {
           setState(() {
             _totalIncome = double.parse(summary['income']);
             _totalExpense = double.parse(summary['expense']);
-            _currentMonthIncome = double.parse(summary['currentMonthIncome']);
-            _currentMonthExpense = double.parse(summary['currentMonthExpense']);
+            _currentMonthIncome = double.parse(summary['income']);
+            _currentMonthExpense = double.parse(summary['expense']);
           });
-        } else {
-          var message = jsonDecode(response.body)['message'];
-          Get.snackbar('Error', message,
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.red,
-              colorText: Colors.white);
-        }
-      }
-      // Hide loading indicator
-      Get.back();
-    });
-  }
-
-  void loadData() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    id = prefs.getString('_id');
-    if (id == null) {
-      Get.to(() => LoginPage(), transition: Transition.leftToRight);
-    } else {
-      // Show loading indicator
-      Get.dialog(
-        const Center(
-          child: CircularProgressIndicator(),
-        ),
-        barrierDismissible: false,
-      );
-
-      // print(id);
-      final response = await getBalanceList(id);
-      if (response.statusCode == 200) {
-        final expenses = jsonDecode(response.body);
-        // add the jsonArray to _regExpenses
-        for (var expense in expenses) {
+          // Extract incomeArray and expenseArray and merge them to insert into _regIncome
+          final incomeArray = summary['incomeArray'];
+          final expenseArray = summary['expenseArray'];
+          // merge the two arrays
+          final mergedArray = [...incomeArray, ...expenseArray];
+          // sort the merged array by date
+          mergedArray.sort((a, b) =>
+              DateTime.parse(a['date']).compareTo(DateTime.parse(b['date'])));
+          // Clear _regIncome
+          _regIncome.clear();
+          for (var expense in mergedArray) {
           // create a new expense object
           Expense expenseObj = Expense(
             id: expense['_id'],
@@ -133,18 +131,23 @@ class _SummaryPageState extends State<SummaryPage> {
             _regIncome.add(expenseObj);
           });
         }
-      } else {
-        var message = jsonDecode(response.body)['message'];
-        Get.snackbar('Error', message,
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Colors.red,
-            colorText: Colors.white);
-      }
-    }
-    // Hide loading indicator
-    Get.back();
-  }
 
+          // Clear loading indicator
+          Get.back();
+        } else {
+          // Hide loading indicator
+          Get.back();
+          var message = jsonDecode(response.body)['message'];
+          Get.snackbar('Error', message,
+              snackPosition: SnackPosition.BOTTOM,
+              backgroundColor: Colors.red,
+              colorText: Colors.white);
+        }
+      }
+      
+    });
+  }
+  
   void _removeIncome(Expense expense) async {
     final expensIndex = _regIncome.indexOf(expense);
     // setState(() {
@@ -240,7 +243,75 @@ class _SummaryPageState extends State<SummaryPage> {
     Get.back();
   }
 
-  void loadSummaryByMonth(int month) async {
+  void loadSummaryByMonth(DateTime date) async {
+    // Show loading indicator
+
+    SharedPreferences.getInstance().then((prefs) async {
+      id = prefs.getString('_id');
+
+      // Show loading indicator
+      Get.dialog(
+        const Center(
+          child: CircularProgressIndicator(),
+        ),
+        barrierDismissible: false,
+      );
+
+      final response = await getSummaryByMonth(id, date.toIso8601String());
+    if (response.statusCode == 200) {
+      final summary = jsonDecode(response.body);
+        //debugPrint('Summary: $summary');
+      // add the jsonArray to _regExpenses
+        setState(() {
+          _currentMonthIncome = double.parse(summary['income']);
+          _currentMonthExpense = double.parse(summary['expense']);
+
+        });
+        // Extract incomeArray and expenseArray and merge them to insert into _regIncome
+        final incomeArray = summary['incomeArray'];
+        final expenseArray = summary['expenseArray'];
+        // merge the two arrays
+        final mergedArray = [...incomeArray, ...expenseArray];
+        // sort the merged array by date
+        mergedArray.sort((a, b) =>
+            DateTime.parse(a['date']).compareTo(DateTime.parse(b['date'])));
+        // Clear _regIncome
+        _regIncome.clear();
+        for (var expense in mergedArray) {
+          // create a new expense object
+          Expense expenseObj = Expense(
+            id: expense['_id'],
+            title: expense['title'],
+            amount: expense['amount'].toString(),
+            date: DateTime.parse(expense['date']),
+            category: _categoryFinder(expense['category']),
+          );
+          // add the expense object to _regExpenses
+          setState(() {
+            _regIncome.add(expenseObj);
+          });
+        }
+
+        // Clear loading indicator
+        Get.back();
+      } else {
+        // Hide loading indicator
+        Get.back();
+        var message = jsonDecode(response.body)['message'];
+        Get.snackbar('Error', message,
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.red,
+            colorText: Colors.white);
+      }
+    });
+  }
+
+  void _addExpense(Expense expense) async {
+    // _regExpenses.add(expense);
+
+    // First of all server call to add expense
+    // Then if successfull then add to _regExpenses to the list of the response
+
     // Show loading indicator
     Get.dialog(
       const Center(
@@ -249,15 +320,25 @@ class _SummaryPageState extends State<SummaryPage> {
       barrierDismissible: false,
     );
 
-    // print(id);
-    final response = await getSummaryByMonth(id, month);
-    if (response.statusCode == 200) {
-      final summary = jsonDecode(response.body);
-      // add the jsonArray to _regExpenses
-      setState(() {
-        _currentMonthIncome = double.parse(summary['income']);
-        _currentMonthExpense = double.parse(summary['expense']);
-      });
+    // _regExpenses encode to json then store in shared preferences
+    final response = await addBalance(
+      id,
+      expense.title,
+      expense.amount,
+      expense.date,
+      expense.category.name,
+    );
+
+    if (response.statusCode == 201) {
+      // Get the title of the expense
+      final expense = jsonDecode(response.body);
+
+      // Show success message
+      Get.snackbar(
+          'Success', 'Balance Data ${expense['title']}  added successfully!',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.green,
+          colorText: Colors.white);
     } else {
       var message = jsonDecode(response.body)['message'];
       Get.snackbar('Error', message,
@@ -270,10 +351,20 @@ class _SummaryPageState extends State<SummaryPage> {
     Get.back();
   }
 
+  void _openAddExpenseOverlay() {
+    showModalBottomSheet(
+        useSafeArea: true,
+        context: context,
+        isScrollControlled: true,
+        builder: (context) => NewExpense(
+              onAddExpense: _addExpense,
+            ));
+  }
+
   @override
   void initState() {
     super.initState();
-    loadData();
+    //loadData();
     loadSummary();
   }
 
@@ -284,7 +375,7 @@ class _SummaryPageState extends State<SummaryPage> {
     final height = MediaQuery.of(context).size.height;
 
     Widget mainContent = const Center(
-      child: Text('No Expenses added yet!'),
+      child: Text('No Income / Expenses added yet!'),
     );
 
     if (_regIncome.isNotEmpty) {
@@ -295,9 +386,45 @@ class _SummaryPageState extends State<SummaryPage> {
     }
 
     return Scaffold(
+      bottomNavigationBar: BottomNavigationBar(
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.shopping_bag),
+            label: 'Expense',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(
+              Icons.attach_money,
+              color: Colors.white,
+            ),
+            label: 'Income',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.summarize),
+            label: 'Summary',
+          ),
+        ],
+        currentIndex: 2,
+        selectedItemColor: Colors.amber[800],
+        onTap: (index) {
+          switch (index) {
+            case 0:
+              Get.to(() => const Expenses(),
+                  transition: Transition.rightToLeft);
+              break;
+            case 1:
+              Get.to(() => const IncomePage(),
+                  transition: Transition.rightToLeft);
+              break;
+            case 2:
+              break;
+          }
+        },
+      ),
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Summary of Expenses'),
+        title: const Text('Summary of Income and Expense',
+            style: TextStyle(fontSize: 12)),
         actions: [
           IconButton(
             onPressed: () {
@@ -313,11 +440,9 @@ class _SummaryPageState extends State<SummaryPage> {
       ),
       // Summary of Income and Expense in a month
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Get.to(() => const Expenses(), transition: Transition.rightToLeft);
-        },
+        onPressed: _openAddExpenseOverlay,
         child: const Icon(
-          Icons.attach_money,
+          Icons.add,
           color: Color.fromARGB(255, 4, 76, 109),
         ),
       ),
@@ -326,28 +451,27 @@ class _SummaryPageState extends State<SummaryPage> {
         child: width < height
             ? Column(
                 children: [
-                  // Month Dropdown
-                  DropdownMenu(
-                    initialSelection: _currentMonth,
-                    onSelected: (value) {
-                      setState(() {
-                        _currentMonth = value ?? _currentMonth;
-                      });
-                      loadSummaryByMonth(_currentMonth);
-                    },
-                    dropdownMenuEntries: const [
-                      DropdownMenuEntry(value: 1, label: 'January'),
-                      DropdownMenuEntry(value: 2, label: 'February'),
-                      DropdownMenuEntry(value: 3, label: 'March'),
-                      DropdownMenuEntry(value: 4, label: 'April'),
-                      DropdownMenuEntry(value: 5, label: 'May'),
-                      DropdownMenuEntry(value: 6, label: 'June'),
-                      DropdownMenuEntry(value: 7, label: 'July'),
-                      DropdownMenuEntry(value: 8, label: 'August'),
-                      DropdownMenuEntry(value: 9, label: 'September'),
-                      DropdownMenuEntry(value: 10, label: 'October'),
-                      DropdownMenuEntry(value: 11, label: 'November'),
-                      DropdownMenuEntry(value: 12, label: 'December'),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Text(formatter.format(DateTime(
+                          _currentDate.month - 1 == 0
+                              ? _currentDate.year - 1
+                              : _currentDate.year,
+                          _currentDate.month - 1 == 0
+                              ? 12
+                              : _currentDate.month - 1,
+                          _currentDate.day))),
+                      const Text("-"),
+                      Text(formatter.format(_currentDate)),
+                      IconButton(
+                        onPressed: _presentDatePicker,
+                        icon: const Icon(
+                          Icons.calendar_month,
+                          color: Colors.blue,
+                        ),
+                      ),
                     ],
                   ),
                   _buildSummaryCard(
@@ -360,7 +484,7 @@ class _SummaryPageState extends State<SummaryPage> {
                     height: 10,
                   ),
                   const Text(
-                    'Income List',
+                    'Incomes/Expenses',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -378,28 +502,18 @@ class _SummaryPageState extends State<SummaryPage> {
                   Expanded(
                     child: Column(
                       children: [
-                        // Month Dropdown
-                        DropdownMenu(
-                          initialSelection: _currentMonth,
-                          onSelected: (value) {
-                            setState(() {
-                              _currentMonth = value ?? _currentMonth;
-                            });
-                            loadSummaryByMonth(_currentMonth);
-                          },
-                          dropdownMenuEntries: const [
-                            DropdownMenuEntry(value: 1, label: 'January'),
-                            DropdownMenuEntry(value: 2, label: 'February'),
-                            DropdownMenuEntry(value: 3, label: 'March'),
-                            DropdownMenuEntry(value: 4, label: 'April'),
-                            DropdownMenuEntry(value: 5, label: 'May'),
-                            DropdownMenuEntry(value: 6, label: 'June'),
-                            DropdownMenuEntry(value: 7, label: 'July'),
-                            DropdownMenuEntry(value: 8, label: 'August'),
-                            DropdownMenuEntry(value: 9, label: 'September'),
-                            DropdownMenuEntry(value: 10, label: 'October'),
-                            DropdownMenuEntry(value: 11, label: 'November'),
-                            DropdownMenuEntry(value: 12, label: 'December'),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text(formatter.format(_currentDate)),
+                            IconButton(
+                              onPressed: _presentDatePicker,
+                              icon: const Icon(
+                                Icons.calendar_month,
+                                color: Colors.blue,
+                              ),
+                            ),
                           ],
                         ),
                         Expanded(
@@ -603,7 +717,7 @@ getSummary(String id) async {
   return response;
 }
 
-getSummaryByMonth(String id, int month) async {
+getSummaryByMonth(String id, String date) async {
   const slag = '/balance/get-summary-by-month';
 
   final uri = Uri.parse(BASE_URL + slag);
@@ -614,7 +728,7 @@ getSummaryByMonth(String id, int month) async {
       },
       body: jsonEncode(<String, String>{
         "_uid": id,
-        "month": month.toString(),
+        "date": date,
       }));
 
   return response;
